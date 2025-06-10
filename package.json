@@ -1,0 +1,23 @@
+{
+  "name": "gap-cli",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "gap": "./bin/gap.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "A CLI tool for managing stacked Git branches",
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^14.0.0",
+    "inquirer": "^12.6.3",
+    "ora": "^8.2.0",
+    "simple-git": "^3.28.0"
+  }
+}

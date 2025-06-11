@@ -76,7 +76,7 @@ export const syncCommand = new Command("sync")
 
       if (options.deleteMerged) {
         spinner.start("Finding merged branches...");
-        const mergedBranches = await getMergedBranches(mainBranch);
+        const { merged: mergedBranches } = await getMergedBranches(mainBranch);
         spinner.stop();
 
         if (mergedBranches.length === 0) {
@@ -188,37 +188,101 @@ async function getBehindCount(localBranch, remoteBranch) {
 
 async function getMergedBranches(mainBranch) {
   try {
+    // Get all local branches
     const allBranchesResult = await git.raw([
       "branch",
       "--format=%(refname:short)",
     ]);
+
     const allBranches = allBranchesResult
       .split("\n")
       .map((b) => b.trim())
       .filter((b) => b && b !== mainBranch && b !== "master" && b !== "main");
 
-    const mergedBranches = [];
+    if (allBranches.length === 0) {
+      return { merged: [], unmerged: [] };
+    }
 
-    for (const branch of allBranches) {
-      // Get commits that are in branch but not in mainBranch
-      // --cherry-pick omits commits that have been applied in a different form
-      const result = await git.raw([
-        "log",
-        `${mainBranch}...${branch}`,
-        "--cherry-pick",
-        "--right-only",
-        "--oneline",
-      ]);
+    // Batch operation: Check all branches in parallel for better performance
+    const branchChecks = await Promise.all(
+      allBranches.map(async (branch) => {
+        try {
+          // Get the merge base between main and the branch
+          const mergeBase = await git
+            .raw(["merge-base", mainBranch, branch])
+            .catch(() => null);
+          if (!mergeBase) {
+            return { branch, merged: false, reason: "no-common-ancestor" };
+          }
 
-      // If no output, all changes from branch exist in mainBranch
-      if (!result.trim()) {
-        mergedBranches.push(branch);
+          // Check if branch has any changes that aren't in main
+          // --cherry-pick handles squashed commits by comparing patches, not commit SHAs
+          const unmergedCommits = await git.raw([
+            "rev-list",
+            "--count",
+            "--cherry-pick",
+            "--right-only",
+            "--no-merges", // Ignore merge commits in the branch
+            `${mainBranch}...${branch}`,
+          ]);
+
+          const count = parseInt(unmergedCommits.trim());
+
+          // Also check if the branch tip is directly reachable from main
+          // (handles case where branch was updated after squash merge)
+          let isReachable = false;
+          try {
+            await git.raw(["merge-base", "--is-ancestor", branch, mainBranch]);
+            isReachable = true;
+          } catch (e) {
+            // Not reachable
+          }
+
+          return {
+            branch,
+            merged: count === 0 || isReachable,
+            unmergedCount: count,
+            isReachable,
+            reason: isReachable
+              ? "reachable-from-main"
+              : count === 0
+                ? "all-changes-in-main"
+                : "has-unmerged-changes",
+          };
+        } catch (error) {
+          console.warn(`Error checking branch ${branch}:`, error.message);
+          return {
+            branch,
+            merged: false,
+            reason: "error",
+            error: error.message,
+          };
+        }
+      }),
+    );
+
+    // Separate merged and unmerged branches
+    const merged = [];
+    const unmerged = [];
+
+    for (const check of branchChecks) {
+      if (check.merged) {
+        merged.push(check.branch);
+      } else {
+        unmerged.push({
+          branch: check.branch,
+          reason: check.reason,
+          unmergedCount: check.unmergedCount,
+        });
       }
     }
 
-    return mergedBranches;
+    return {
+      merged: merged.sort(),
+      unmerged: unmerged.sort((a, b) => a.branch.localeCompare(b.branch)),
+    };
   } catch (error) {
     console.error("Error finding merged branches:", error);
-    return [];
+    return { merged: [], unmerged: [] };
   }
 }

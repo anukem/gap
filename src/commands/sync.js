@@ -74,6 +74,7 @@ export const syncCommand = new Command("sync")
         spinner.info("Current branch is up to date");
       }
 
+      // some comment
       if (options.deleteMerged) {
         spinner.start("Finding merged branches...");
         const mergedBranches = await getMergedBranches(mainBranch);

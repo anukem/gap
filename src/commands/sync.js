@@ -14,8 +14,10 @@ import {
   deleteBranch,
   getRemoteBranches,
 } from "../utils/git.js";
+import { getLogger } from "../utils/logger.js";
 
 const git = simpleGit();
+const logger = getLogger("sync");
 
 export const syncCommand = new Command("sync")
   .description(
@@ -25,14 +27,17 @@ export const syncCommand = new Command("sync")
   .option("-f, --force", "Force delete branches without confirmation")
   .action(async (options) => {
     const spinner = ora();
+    logger.debug("Starting sync command", options);
 
     try {
       spinner.start("Fetching from remote...");
       await fetchFromRemote();
       spinner.succeed("Fetched latest changes from remote");
+      logger.info("Fetched latest changes from remote");
 
       const repo = await getCurrentRepo();
       if (!repo) {
+        logger.error("Not in a git repository");
         console.error(chalk.red("Not in a git repository"));
         process.exit(1);
       }
@@ -40,16 +45,20 @@ export const syncCommand = new Command("sync")
       const currentBranch = await getCurrentBranch();
       const allStacks = await loadStacks();
       const repoStacks = allStacks[repo] || {};
+      logger.debug(`Found ${Object.keys(repoStacks).length} stacks in current repo`);
 
       console.log(chalk.cyan.bold("\n🔄 Syncing stacks...\n"));
 
       spinner.start("Checking for updates...");
 
       const mainBranch = await getMainBranch();
+      logger.debug(`Main branch: ${mainBranch}`);
+      
       const behind = await getBehindCount(
         currentBranch,
         `origin/${currentBranch}`,
       );
+      logger.debug(`Current branch is ${behind} commits behind origin`);
 
       if (behind > 0) {
         spinner.warn(
@@ -67,8 +76,10 @@ export const syncCommand = new Command("sync")
 
         if (pullChanges) {
           spinner.start("Pulling changes...");
+          logger.info("Pulling latest changes");
           await git.pull();
           spinner.succeed("Pulled latest changes");
+          logger.info("Successfully pulled latest changes");
         }
       } else {
         spinner.info("Current branch is up to date");
@@ -76,8 +87,10 @@ export const syncCommand = new Command("sync")
 
       if (options.deleteMerged) {
         spinner.start("Finding merged branches...");
+        logger.debug("Looking for merged branches");
         const { merged: mergedBranches } = await getMergedBranches(mainBranch);
         spinner.stop();
+        logger.info(`Found ${mergedBranches.length} merged branches`);
 
         if (mergedBranches.length === 0) {
           console.log(chalk.dim("No merged branches to delete"));
@@ -109,10 +122,13 @@ export const syncCommand = new Command("sync")
             spinner.start(`Deleting ${branch}...`);
 
             try {
+              logger.debug(`Deleting branch: ${branch}`);
               await deleteBranch(branch);
               await removeBranchFromStack(branch);
               spinner.succeed(chalk.green(`Deleted ${branch}`));
+              logger.info(`Successfully deleted branch: ${branch}`);
             } catch (error) {
+              logger.error(`Failed to delete branch ${branch}:`, error);
               spinner.fail(
                 chalk.red(`Failed to delete ${branch}: ${error.message}`),
               );
@@ -122,9 +138,11 @@ export const syncCommand = new Command("sync")
       }
 
       spinner.start("Checking for stale remote branches...");
+      logger.debug("Checking for stale remote branches");
       const localBranches = await git.branchLocal();
       const remoteBranches = await getRemoteBranches();
       const staleBranches = [];
+      logger.debug(`Local branches: ${localBranches.all.length}, Remote branches: ${remoteBranches.length}`);
 
       for (const [stackName, stack] of Object.entries(repoStacks)) {
         for (const branch of stack.branches) {
@@ -140,14 +158,16 @@ export const syncCommand = new Command("sync")
       spinner.stop();
 
       if (staleBranches.length > 0) {
+        logger.info(`Found ${staleBranches.length} stale branches without remote`);
         console.log(
           chalk.yellow(
             `\nFound ${staleBranches.length} branches without remote:`,
           ),
         );
-        staleBranches.forEach((branch) =>
-          console.log(chalk.dim(`  - ${branch}`)),
-        );
+        staleBranches.forEach((branch) => {
+          logger.debug(`Stale branch: ${branch}`);
+          console.log(chalk.dim(`  - ${branch}`));
+        });
         console.log(
           chalk.dim(
             "\nConsider pushing these branches or removing them from your stacks",
@@ -156,37 +176,53 @@ export const syncCommand = new Command("sync")
       }
 
       console.log(chalk.green.bold("\n✅ Sync complete!"));
+      logger.info("Sync command completed successfully");
     } catch (error) {
+      logger.error("Sync command failed:", error);
       spinner.fail(chalk.red(error.message));
       process.exit(1);
     }
   });
 
 async function getMainBranch() {
+  logger.debug("Determining main branch");
   try {
     const branches = await git.branch();
-    if (branches.all.includes("main")) return "main";
-    if (branches.all.includes("master")) return "master";
+    if (branches.all.includes("main")) {
+      logger.debug("Main branch found: main");
+      return "main";
+    }
+    if (branches.all.includes("master")) {
+      logger.debug("Main branch found: master");
+      return "master";
+    }
+    logger.debug("No main/master branch found, defaulting to main");
     return "main";
   } catch (error) {
+    logger.error("Error getting main branch:", error);
     return "main";
   }
 }
 
 async function getBehindCount(localBranch, remoteBranch) {
+  logger.debug(`Checking behind count: ${localBranch} vs ${remoteBranch}`);
   try {
     const result = await git.raw([
       "rev-list",
       "--count",
       `${localBranch}..${remoteBranch}`,
     ]);
-    return parseInt(result.trim()) || 0;
+    const count = parseInt(result.trim()) || 0;
+    logger.debug(`Behind count: ${count}`);
+    return count;
   } catch (error) {
+    logger.debug("Error getting behind count:", error);
     return 0;
   }
 }
 
 async function getMergedBranches(mainBranch) {
+  logger.debug(`Getting merged branches relative to ${mainBranch}`);
   try {
     // Get all local branches
     const allBranchesResult = await git.raw([
@@ -200,8 +236,11 @@ async function getMergedBranches(mainBranch) {
       .filter((b) => b && b !== mainBranch && b !== "master" && b !== "main");
 
     if (allBranches.length === 0) {
+      logger.debug("No branches to check");
       return { merged: [], unmerged: [] };
     }
+    
+    logger.debug(`Checking ${allBranches.length} branches for merge status`);
 
     // Batch operation: Check all branches in parallel for better performance
     const branchChecks = await Promise.all(
@@ -250,6 +289,7 @@ async function getMergedBranches(mainBranch) {
                 : "has-unmerged-changes",
           };
         } catch (error) {
+          logger.warn(`Error checking branch ${branch}:`, error.message);
           console.warn(`Error checking branch ${branch}:`, error.message);
           return {
             branch,
@@ -277,11 +317,13 @@ async function getMergedBranches(mainBranch) {
       }
     }
 
+    logger.debug(`Found ${merged.length} merged and ${unmerged.length} unmerged branches`);
     return {
       merged: merged.sort(),
       unmerged: unmerged.sort((a, b) => a.branch.localeCompare(b.branch)),
     };
   } catch (error) {
+    logger.error("Error finding merged branches:", error);
     console.error("Error finding merged branches:", error);
     return { merged: [], unmerged: [] };
   }

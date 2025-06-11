@@ -188,21 +188,37 @@ async function getBehindCount(localBranch, remoteBranch) {
 
 async function getMergedBranches(mainBranch) {
   try {
-    const result = await git.raw(["branch", "--merged", mainBranch]);
-    const branches = result
+    const allBranchesResult = await git.raw([
+      "branch",
+      "--format=%(refname:short)",
+    ]);
+    const allBranches = allBranchesResult
       .split("\n")
       .map((b) => b.trim())
-      .filter(
-        (b) =>
-          b &&
-          !b.startsWith("*") &&
-          b !== mainBranch &&
-          b !== "master" &&
-          b !== "main",
-      );
+      .filter((b) => b && b !== mainBranch && b !== "master" && b !== "main");
 
-    return branches;
+    const mergedBranches = [];
+
+    for (const branch of allBranches) {
+      // Get commits that are in branch but not in mainBranch
+      // --cherry-pick omits commits that have been applied in a different form
+      const result = await git.raw([
+        "log",
+        `${mainBranch}..${branch}`,
+        "--cherry-pick",
+        "--right-only",
+        "--oneline",
+      ]);
+
+      // If no output, all changes from branch exist in mainBranch
+      if (!result.trim()) {
+        mergedBranches.push(branch);
+      }
+    }
+
+    return mergedBranches;
   } catch (error) {
+    console.error("Error finding merged branches:", error);
     return [];
   }
 }

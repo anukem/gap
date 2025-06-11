@@ -55,6 +55,8 @@ export const createCommand = new Command("create")
 
         logger.debug(`Creating new stack: ${stackName}`);
         await createStack(stackName, currentBranch);
+        // Add the current branch to the new stack so it can be found
+        await addBranchToStack(stackName, currentBranch);
         currentStack = await getStackForBranch(currentBranch);
       }
 
@@ -89,33 +91,14 @@ export const createCommand = new Command("create")
       await createBranch(branchName, currentBranch);
       spinner.succeed(`Branch '${branchName}' created`);
 
+      // At this point, currentStack should always exist because we create one above if it doesn't
       if (currentStack) {
         logger.debug(`Adding branch to existing stack: ${currentStack.name}`);
         await addBranchToStack(currentStack.name, branchName, currentBranch);
       } else {
-        logger.debug("No current stack, prompting to create new stack");
-        const { createNewStack } = await inquirer.prompt([
-          {
-            type: "confirm",
-            name: "createNewStack",
-            message: "Would you like to create a new stack?",
-            default: true,
-          },
-        ]);
-
-        if (createNewStack) {
-          const { stackName } = await inquirer.prompt([
-            {
-              type: "input",
-              name: "stackName",
-              message: "Enter stack name:",
-              default: `stack-${Date.now()}`,
-            },
-          ]);
-
-          await createStack(stackName, currentBranch);
-          await addBranchToStack(stackName, branchName, currentBranch);
-        }
+        // This should never happen now, but keeping as safety net
+        logger.warn("Unexpected state: currentStack is still null after creation");
+        console.error(chalk.red("Failed to add branch to stack"));
       }
 
       spinner.succeed(

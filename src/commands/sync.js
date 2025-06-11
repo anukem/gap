@@ -23,7 +23,7 @@ export const syncCommand = new Command("sync")
   .description(
     "Sync your local stack with remote changes and clean up stale branches",
   )
-  .option("-d, --delete-merged", "Delete local branches that have been merged")
+  .option("-r, --delete-merged", "Delete local branches that have been merged")
   .option("-f, --force", "Force delete branches without confirmation")
   .action(async (options) => {
     const spinner = ora();
@@ -45,7 +45,11 @@ export const syncCommand = new Command("sync")
       const currentBranch = await getCurrentBranch();
       const allStacks = await loadStacks();
       const repoStacks = allStacks[repo] || {};
-      logger.debug(`Found ${Object.keys(repoStacks).length} stacks in current repo`);
+
+      logger.debug(
+        `Found ${Object.keys(repoStacks).length} stacks in current repo`,
+        repoStacks,
+      );
 
       console.log(chalk.cyan.bold("\n🔄 Syncing stacks...\n"));
 
@@ -53,7 +57,7 @@ export const syncCommand = new Command("sync")
 
       const mainBranch = await getMainBranch();
       logger.debug(`Main branch: ${mainBranch}`);
-      
+
       const behind = await getBehindCount(
         currentBranch,
         `origin/${currentBranch}`,
@@ -142,7 +146,9 @@ export const syncCommand = new Command("sync")
       const localBranches = await git.branchLocal();
       const remoteBranches = await getRemoteBranches();
       const staleBranches = [];
-      logger.debug(`Local branches: ${localBranches.all.length}, Remote branches: ${remoteBranches.length}`);
+      logger.debug(
+        `Local branches: ${localBranches.all.length}, Remote branches: ${remoteBranches.length}`,
+      );
 
       for (const [stackName, stack] of Object.entries(repoStacks)) {
         for (const branch of stack.branches) {
@@ -158,7 +164,9 @@ export const syncCommand = new Command("sync")
       spinner.stop();
 
       if (staleBranches.length > 0) {
-        logger.info(`Found ${staleBranches.length} stale branches without remote`);
+        logger.info(
+          `Found ${staleBranches.length} stale branches without remote`,
+        );
         console.log(
           chalk.yellow(
             `\nFound ${staleBranches.length} branches without remote:`,
@@ -229,6 +237,7 @@ async function getMergedBranches(mainBranch) {
       "branch",
       "--format=%(refname:short)",
     ]);
+    logger.debug(allBranchesResult);
 
     const allBranches = allBranchesResult
       .split("\n")
@@ -239,7 +248,7 @@ async function getMergedBranches(mainBranch) {
       logger.debug("No branches to check");
       return { merged: [], unmerged: [] };
     }
-    
+
     logger.debug(`Checking ${allBranches.length} branches for merge status`);
 
     // Batch operation: Check all branches in parallel for better performance
@@ -317,7 +326,9 @@ async function getMergedBranches(mainBranch) {
       }
     }
 
-    logger.debug(`Found ${merged.length} merged and ${unmerged.length} unmerged branches`);
+    logger.debug(
+      `Found ${merged.length} merged and ${unmerged.length} unmerged branches`,
+    );
     return {
       merged: merged.sort(),
       unmerged: unmerged.sort((a, b) => a.branch.localeCompare(b.branch)),

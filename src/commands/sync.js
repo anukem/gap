@@ -204,7 +204,7 @@ async function getMergedBranches(mainBranch) {
       // --cherry-pick omits commits that have been applied in a different form
       const result = await git.raw([
         "log",
-        `${mainBranch}..${branch}`,
+        `${mainBranch}...${branch}`,
         "--cherry-pick",
         "--right-only",
         "--oneline",

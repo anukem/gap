@@ -17,7 +17,6 @@ import {
 import { getLogger } from "../utils/logger.js";
 
 const git = simpleGit();
-const logger = getLogger("sync");
 
 export const syncCommand = new Command("sync")
   .description(
@@ -26,6 +25,7 @@ export const syncCommand = new Command("sync")
   .option("-r, --delete-merged", "Delete local branches that have been merged")
   .option("-f, --force", "Force delete branches without confirmation")
   .action(async (options) => {
+    const logger = getLogger("sync");
     const spinner = ora();
     logger.debug("Starting sync command", options);
 
@@ -55,12 +55,13 @@ export const syncCommand = new Command("sync")
 
       spinner.start("Checking for updates...");
 
-      const mainBranch = await getMainBranch();
+      const mainBranch = await getMainBranch(logger);
       logger.debug(`Main branch: ${mainBranch}`);
 
       const behind = await getBehindCount(
         currentBranch,
         `origin/${currentBranch}`,
+        logger,
       );
       logger.debug(`Current branch is ${behind} commits behind origin`);
 
@@ -92,7 +93,7 @@ export const syncCommand = new Command("sync")
       if (options.deleteMerged) {
         spinner.start("Finding merged branches...");
         logger.debug("Looking for merged branches");
-        const { merged: mergedBranches } = await getMergedBranches(mainBranch);
+        const { merged: mergedBranches } = await getMergedBranches(mainBranch, logger);
         spinner.stop();
         logger.info(`Found ${mergedBranches.length} merged branches`);
 
@@ -192,7 +193,7 @@ export const syncCommand = new Command("sync")
     }
   });
 
-async function getMainBranch() {
+async function getMainBranch(logger) {
   logger.debug("Determining main branch");
   try {
     const branches = await git.branch();
@@ -212,7 +213,7 @@ async function getMainBranch() {
   }
 }
 
-async function getBehindCount(localBranch, remoteBranch) {
+async function getBehindCount(localBranch, remoteBranch, logger) {
   logger.debug(`Checking behind count: ${localBranch} vs ${remoteBranch}`);
   try {
     const result = await git.raw([
@@ -229,7 +230,7 @@ async function getBehindCount(localBranch, remoteBranch) {
   }
 }
 
-async function getMergedBranches(mainBranch) {
+async function getMergedBranches(mainBranch, logger) {
   logger.debug(`Getting merged branches relative to ${mainBranch}`);
   try {
     // Get all local branches

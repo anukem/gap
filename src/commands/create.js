@@ -17,8 +17,6 @@ import {
 } from "../utils/stack.js";
 import { getLogger } from "../utils/logger.js";
 
-const logger = getLogger("create");
-
 export const createCommand = new Command("create")
   .alias("c")
   .description("Create a new branch in your stack")
@@ -28,6 +26,7 @@ export const createCommand = new Command("create")
     "Commit message for any uncommitted changes",
   )
   .action(async (branchName, options) => {
+    const logger = getLogger("create");
     const spinner = ora();
     logger.debug("Starting create command", { branchName, options });
 
